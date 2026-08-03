@@ -58,24 +58,34 @@ I have deployed the app on Render. You can access the web app on https://scalebu
 
 ## 5. Local Run Instructions
 
-If you want to run it locally, you can run these commands. I am assuming this is a Windows machine:
+If you want to run it locally, you can run these commands on a Windows machine:
 
 Step 1: Clone the repo
+```bash
 git clone https://github.com/mohammedpithapur/scalebus.git
 cd scaletechbus
+```
 
 Step 2: Create virtual environment
+```powershell
 python -m venv venv
 .\venv\Scripts\activate
+```
 
 Step 3: Install dependencies
+```bash
 pip install -r requirements.txt
+```
 
 Step 4: Set up local .env file
+```powershell
 Set-Content -Path .env -Value "GROQ_API_KEY=your_groq_api_key_here`nHOLD_GRACE_PERIOD_SECONDS=900"
+```
 
 Step 5: Start the server
+```bash
 python main.py
+```
 
 ## 6. Engineering Trade-Offs
 
