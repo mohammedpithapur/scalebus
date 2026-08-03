@@ -28,13 +28,15 @@ class HoldSeatsResponse(BaseModel):
     expires_at: str
 
 class ConfirmBookingRequest(BaseModel):
-    hold_id: str
+    hold_id: Optional[str] = None
+    trip_id: Optional[str] = None
+    seat_numbers: Optional[List[str]] = None
     user_id: str
     payment_reference: str
 
 class ConfirmBookingResponse(BaseModel):
     booking_id: str
-    hold_id: str
+    hold_id: Optional[str] = None
     trip_id: str
     user_id: str
     seats: List[str]
@@ -65,5 +67,7 @@ class FeedbackResponse(BaseModel):
     sentiment: str  # "POSITIVE", "NEUTRAL", "NEGATIVE", "STRONGLY_NEGATIVE"
     summary: str
     category_tags: List[str]
+    priority_level: str  # "CRITICAL", "HIGH", "MEDIUM", "LOW"
+    priority_score: int  # 4, 3, 2, 1
     urgent_followup: bool
     created_at: str

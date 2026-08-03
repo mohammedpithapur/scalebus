@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 DB_NAME = os.getenv("DATABASE_URL", "bus_booking.db")
 
 def get_connection():
-    """Create a SQLite connection with WAL mode enabled for high concurrency."""
     conn = sqlite3.connect(DB_NAME, timeout=10.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
@@ -15,7 +14,6 @@ def get_connection():
 
 @contextlib.contextmanager
 def get_db():
-    """Context manager for SQLite DB session with auto-commit/rollback."""
     conn = get_connection()
     try:
         yield conn
@@ -27,11 +25,9 @@ def get_db():
         conn.close()
 
 def init_db():
-    """Initialize database tables and indexes."""
     with get_db() as conn:
         cursor = conn.cursor()
         
-        # Trips table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS trips (
                 id TEXT PRIMARY KEY,
@@ -43,7 +39,6 @@ def init_db():
             );
         """)
         
-        # Seats table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS seats (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,7 +51,6 @@ def init_db():
             );
         """)
         
-        # Holds table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS holds (
                 id TEXT PRIMARY KEY,
@@ -72,7 +66,6 @@ def init_db():
             );
         """)
         
-        # Bookings table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS bookings (
                 id TEXT PRIMARY KEY,
@@ -91,7 +84,6 @@ def init_db():
             );
         """)
         
-        # Users table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
@@ -103,7 +95,6 @@ def init_db():
             );
         """)
         
-        # Feedback table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS feedback (
                 id TEXT PRIMARY KEY,
@@ -113,17 +104,27 @@ def init_db():
                 sentiment TEXT NOT NULL,
                 summary TEXT NOT NULL,
                 category_tags_json TEXT NOT NULL,
+                priority_level TEXT DEFAULT 'LOW',
+                priority_score INTEGER DEFAULT 1,
                 urgent_followup INTEGER NOT NULL CHECK(urgent_followup IN (0, 1)),
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (booking_id) REFERENCES bookings(id)
             );
         """)
         
-        # Indexes for fast lookup
+        # Add columns if upgrading existing table
+        try:
+            cursor.execute("ALTER TABLE feedback ADD COLUMN priority_level TEXT DEFAULT 'LOW';")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE feedback ADD COLUMN priority_score INTEGER DEFAULT 1;")
+        except Exception:
+            pass
+            
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_seats_trip ON seats(trip_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_holds_status_exp ON holds(status, expires_at);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_bookings_user ON bookings(user_id);")
 
 def utc_now_iso() -> str:
-    """Return current UTC timestamp in ISO 8601 format."""
     return datetime.now(timezone.utc).isoformat()

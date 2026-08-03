@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RedBus Engine - Interactive Test Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --card-bg: #1e293b;
+            --card-border: #334155;
+            --primary: #ef4444;
+            --primary-hover: #dc2626;
+            --accent: #3b82f6;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --available: #22c55e;
+            --held: #f59e0b;
+            --booked: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            padding: 24px;
+            min-height: 100vh;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .badge-live {
+            background-color: rgba(34, 197, 94, 0.15);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            font-size: 0.75rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-grid { grid-template-columns: 1fr; }
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #ffffff;
+        }
+
+        .form-group { margin-bottom: 14px; }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        select, input, textarea {
+            width: 100%;
+            padding: 10px 14px;
+            background: #0f172a;
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.9rem;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        /* Color scheme for datepicker icon */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+            cursor: pointer;
+        }
+
+        select option {
+            background: #0f172a;
+            color: #fff;
+            padding: 10px;
+        }
+
+        select:focus, input:focus, textarea:focus { border-color: var(--accent); }
+
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        .btn:hover { background: var(--primary-hover); }
+        .btn:active { transform: scale(0.98); }
+
+        .btn-hold { background: #f59e0b; color: #0f172a; }
+        .btn-hold:hover { background: #d97706; }
+
+        .btn-book { background: #22c55e; color: #0f172a; }
+        .btn-book:hover { background: #16a34a; }
+
+        .btn-secondary { background: #334155; color: #fff; }
+        .btn-secondary:hover { background: #475569; }
+
+        .btn-accent { background: var(--accent); color: #fff; }
+        .btn-accent:hover { background: #2563eb; }
+
+        .bus-container {
+            background: #0f172a;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid var(--card-border);
+            margin-bottom: 16px;
+        }
+
+        .legend {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 14px;
+            font-size: 0.8rem;
+        }
+
+        .legend-item { display: flex; align-items: center; gap: 6px; }
+        .dot { width: 12px; height: 12px; border-radius: 3px; }
+        .dot-available { background: var(--available); }
+        .dot-held { background: var(--held); }
+        .dot-booked { background: var(--booked); }
+
+        .seat-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+        }
+
+        .seat-btn {
+            padding: 12px 6px;
+            text-align: center;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border: 2px solid transparent;
+            user-select: none;
+            transition: all 0.2s;
+        }
+
+        .seat-btn.available {
+            background: rgba(34, 197, 94, 0.15);
+            color: #4ade80;
+            border-color: rgba(34, 197, 94, 0.4);
+        }
+        .seat-btn.available:hover { background: rgba(34, 197, 94, 0.3); }
+
+        .seat-btn.held {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border-color: rgba(245, 158, 11, 0.4);
+            cursor: not-allowed;
+        }
+
+        .seat-btn.booked {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.4);
+            cursor: not-allowed;
+        }
+
+        .seat-btn.selected {
+            background: #3b82f6 !important;
+            color: #ffffff !important;
+            border-color: #60a5fa !important;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+
+        .result-box {
+            background: #0f172a;
+            border: 1px solid var(--card-border);
+            padding: 14px;
+            border-radius: 8px;
+            margin-top: 14px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .highlight-id {
+            color: #38bdf8;
+            font-weight: 700;
+            font-family: monospace;
+            font-size: 1rem;
+            background: rgba(56, 189, 248, 0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .priority-badge {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-weight: 700;
+            font-size: 0.75rem;
+            display: inline-block;
+            text-transform: uppercase;
+        }
+        .p-critical { background: #b91c1c; color: #ffffff; border: 1px solid #ef4444; }
+        .p-high { background: #c2410c; color: #ffffff; border: 1px solid #f97316; }
+        .p-medium { background: #b45309; color: #ffffff; border: 1px solid #f59e0b; }
+        .p-low { background: #15803d; color: #ffffff; border: 1px solid #22c55e; }
+
+        .tag-pill {
+            background: #334155;
+            color: #cbd5e1;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            margin-right: 4px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🚌 RedBus Engine <span class="badge-live">LIVE ENGINE</span></h1>
+        <a href="/docs" target="_blank" style="color: var(--accent); text-decoration: none; font-size: 0.9rem; font-weight: 500;">OpenAPI Docs ↗</a>
+    </div>
+
+    <div class="dashboard-grid">
+        
+        <!-- PANEL 1: DATE SELECTION, TRIP & SEATS -->
+        <div class="card">
+            <div class="card-title">
+                <span>1. Select Travel Date & Seats</span>
+                <button class="btn btn-secondary" style="width: auto; padding: 4px 10px; font-size: 0.75rem;" onclick="loadTripsAndSeats()">Refresh</button>
+            </div>
+
+            <div class="form-group">
+                <label>📅 Select Travel Date:</label>
+                <input type="date" id="travelDate" onclick="try{this.showPicker()}catch(e){}" onchange="loadTripsAndSeats()">
+            </div>
+
+            <div class="form-group">
+                <label>🚌 Choose Trip Route:</label>
+                <select id="tripSelect" onchange="loadSeatMap()">
+                    <option value="TRIP-101">TRIP-101: Bangalore -> Goa (Departs in 30h)</option>
+                    <option value="TRIP-102">TRIP-102: Mumbai -> Pune (Departs in 12h)</option>
+                    <option value="TRIP-103">TRIP-103: Delhi -> Jaipur (Departs in 2h)</option>
+                    <option value="TRIP-104">TRIP-104: Hyderabad -> Chennai (Departs in 48h)</option>
+                </select>
+            </div>
+
+            <div class="legend">
+                <div class="legend-item"><div class="dot dot-available"></div> Available</div>
+                <div class="legend-item"><div class="dot dot-held"></div> Held</div>
+                <div class="legend-item"><div class="dot dot-booked"></div> Booked</div>
+            </div>
+
+            <div class="bus-container">
+                <div id="seatGrid" class="seat-grid">
+                    <!-- Seat buttons populated dynamically -->
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Passenger ID:</label>
+                <input type="text" id="holdUserId" value="USER-101">
+            </div>
+
+            <div class="form-group">
+                <label>Payment Ref (for Direct Booking):</label>
+                <input type="text" id="directPaymentRef" value="PAY-DIRECT-9988">
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-hold" onclick="placeHold()">Option 1: Hold Seats (5 Min)</button>
+                <button class="btn btn-book" onclick="directBook()">Option 2: Direct Book Seats</button>
+            </div>
+
+            <div id="holdOutput" class="result-box" style="display:none;"></div>
+        </div>
+
+        <!-- PANEL 2: CONFIRM FROM EXISTING HOLD -->
+        <div class="card">
+            <div class="card-title">2. Confirm Booking from Hold</div>
+            
+            <div class="form-group">
+                <label>Active Hold ID:</label>
+                <input type="text" id="bookHoldId" placeholder="e.g. HOLD-12345678">
+            </div>
+
+            <div class="form-group">
+                <label>Passenger ID:</label>
+                <input type="text" id="bookUserId" value="USER-101">
+            </div>
+
+            <div class="form-group">
+                <label>Payment Reference:</label>
+                <input type="text" id="paymentRef" value="PAY-RAZOR-998877">
+            </div>
+
+            <button class="btn btn-accent" onclick="confirmBookingFromHold()">Confirm Held Booking</button>
+            <div id="bookingOutput" class="result-box" style="display:none;"></div>
+        </div>
+
+        <!-- PANEL 3: CANCELLATION & REFUND MATH -->
+        <div class="card">
+            <div class="card-title">3. Cancel & Calculate Refund</div>
+            
+            <div class="form-group">
+                <label>Booking ID to Cancel:</label>
+                <input type="text" id="cancelBookingId" placeholder="e.g. BOOK-12345678">
+            </div>
+
+            <div class="form-group">
+                <label>Reason (Optional):</label>
+                <input type="text" id="cancelReason" value="Change of plans">
+            </div>
+
+            <button class="btn btn-secondary" onclick="cancelBooking()">Cancel Booking</button>
+            <div id="cancelOutput" class="result-box" style="display:none;"></div>
+        </div>
+
+        <!-- PANEL 4: PASSENGER FEEDBACK & PRIORITY ANALYSIS -->
+        <div class="card">
+            <div class="card-title">
+                <span>4. Post-Trip Passenger Feedback</span>
+                <button class="btn btn-secondary" style="width: auto; padding: 4px 10px; font-size: 0.75rem;" onclick="listUrgentFeedback()">Support Queue 🚨</button>
+            </div>
+            
+            <div class="form-group">
+                <label>Booking ID:</label>
+                <input type="text" id="feedbackBookingId" placeholder="e.g. BOOK-12345678">
+            </div>
+
+            <div class="form-group">
+                <label>Passenger Review Comment:</label>
+                <textarea id="feedbackText" rows="3">The AC was broken and the driver was driving very recklessly!</textarea>
+            </div>
+
+            <button class="btn btn-accent" onclick="submitFeedback()">Analyze Feedback Priority</button>
+            <div id="feedbackOutput" class="result-box" style="display:none;"></div>
+        </div>
+
+    </div>
+
+    <script>
+        let selectedSeats = [];
+        let activeTripId = 'TRIP-101';
+
+        function initDatePicker() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('travelDate').value = today;
+        }
+
+        async function loadTripsAndSeats() {
+            const dateVal = document.getElementById('travelDate').value;
+            const tripSelect = document.getElementById('tripSelect');
+
+            try {
+                const url = dateVal ? `/trips?date=${dateVal}` : '/trips';
+                const res = await fetch(url);
+                let trips = await res.json();
+
+                if (!trips || trips.length === 0) {
+                    const allRes = await fetch('/trips');
+                    trips = await allRes.json();
+                }
+
+                if (trips && trips.length > 0) {
+                    const currentVal = tripSelect.value;
+                    tripSelect.innerHTML = '';
+                    trips.forEach(t => {
+                        const opt = document.createElement('option');
+                        opt.value = t.id;
+                        const depTime = new Date(t.departure_time).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+                        opt.innerText = `${t.id}: ${t.source} -> ${t.destination} (Departs ${depTime}) - ₹${t.price_per_seat}`;
+                        tripSelect.appendChild(opt);
+                    });
+
+                    if (currentVal && Array.from(tripSelect.options).some(o => o.value === currentVal)) {
+                        tripSelect.value = currentVal;
+                    } else {
+                        tripSelect.value = trips[0].id;
+                    }
+                }
+                loadSeatMap();
+            } catch (err) {
+                console.error("Error loading trips:", err);
+                loadSeatMap();
+            }
+        }
+
+        async function loadSeatMap() {
+            const tripSelect = document.getElementById('tripSelect');
+            activeTripId = tripSelect.value || 'TRIP-101';
+            selectedSeats = [];
+            const grid = document.getElementById('seatGrid');
+            grid.innerHTML = '<div style="color:var(--text-muted); grid-column:span 5;">Loading seats...</div>';
+
+            try {
+                const res = await fetch(`/trips/${activeTripId}/seats`);
+                const data = await res.json();
+                
+                grid.innerHTML = '';
+                data.seats.forEach(s => {
+                    const btn = document.createElement('div');
+                    btn.className = `seat-btn ${s.status}`;
+                    btn.innerText = s.seat_number;
+                    
+                    if (s.status === 'available') {
+                        btn.onclick = () => toggleSeat(btn, s.seat_number);
+                    }
+                    grid.appendChild(btn);
+                });
+            } catch (err) {
+                grid.innerHTML = `<div style="color:var(--primary);">Error loading seat map: ${err}</div>`;
+            }
+        }
+
+        function toggleSeat(btn, seatNum) {
+            if (selectedSeats.includes(seatNum)) {
+                selectedSeats = selectedSeats.filter(s => s !== seatNum);
+                btn.classList.remove('selected');
+            } else {
+                selectedSeats.push(seatNum);
+                btn.classList.add('selected');
+            }
+        }
+
+        async function placeHold() {
+            const userId = document.getElementById('holdUserId').value;
+            const out = document.getElementById('holdOutput');
+            out.style.display = 'block';
+
+            if (selectedSeats.length === 0) {
+                out.innerHTML = '<span style="color:var(--primary);">⚠️ Please click to select at least one available seat first.</span>';
+                return;
+            }
+
+            try {
+                const res = await fetch('/seats/hold', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        trip_id: activeTripId,
+                        seat_numbers: selectedSeats,
+                        user_id: userId
+                    })
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    out.innerHTML = `
+                        <div style="color:#fbbf24; font-weight:600; margin-bottom:6px;">🟡 Option 1: Seat Hold Created!</div>
+                        <div><strong>Hold ID:</strong> <span class="highlight-id">${data.hold_id}</span></div>
+                        <div><strong>Seats Held:</strong> ${data.seats.join(', ')}</div>
+                        <div><strong>Total Amount:</strong> ₹${data.total_price}</div>
+                        <div style="color:var(--text-muted); font-size:0.8rem; margin-top:4px;">⏱️ Holds expires in 5 minutes (${new Date(data.expires_at).toLocaleTimeString()})</div>
+                    `;
+                    document.getElementById('bookHoldId').value = data.hold_id;
+                    loadSeatMap();
+                } else {
+                    out.innerHTML = `<span style="color:var(--primary);">❌ Error (${res.status}): ${data.detail}</span>`;
+                }
+            } catch (err) {
+                out.innerHTML = `<span style="color:var(--primary);">Error: ${err}</span>`;
+            }
+        }
+
+        async function directBook() {
+            const userId = document.getElementById('holdUserId').value;
+            const paymentRef = document.getElementById('directPaymentRef').value;
+            const out = document.getElementById('holdOutput');
+            out.style.display = 'block';
+
+            if (selectedSeats.length === 0) {
+                out.innerHTML = '<span style="color:var(--primary);">⚠️ Please click to select at least one available seat first.</span>';
+                return;
+            }
+
+            try {
+                const res = await fetch('/bookings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        trip_id: activeTripId,
+                        seat_numbers: selectedSeats,
+                        user_id: userId,
+                        payment_reference: paymentRef
+                    })
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    out.innerHTML = `
+                        <div style="color:#4ade80; font-weight:600; margin-bottom:6px;">🟢 Option 2: Direct Booking Confirmed!</div>
+                        <div><strong>Booking ID:</strong> <span class="highlight-id">${data.booking_id}</span></div>
+                        <div><strong>Seats Booked:</strong> ${data.seats.join(', ')}</div>
+                        <div><strong>Total Paid:</strong> ₹${data.total_amount}</div>
+                        <div><strong>Payment Ref:</strong> ${data.payment_reference}</div>
+                    `;
+                    document.getElementById('cancelBookingId').value = data.booking_id;
+                    document.getElementById('feedbackBookingId').value = data.booking_id;
+                    loadSeatMap();
+                } else {
+                    out.innerHTML = `<span style="color:var(--primary);">❌ Error (${res.status}): ${data.detail}</span>`;
+                }
+            } catch (err) {
+                out.innerHTML = `<span style="color:var(--primary);">Error: ${err}</span>`;
+            }
+        }
+
+        async function confirmBookingFromHold() {
+            const holdId = document.getElementById('bookHoldId').value;
+            const userId = document.getElementById('bookUserId').value;
+            const paymentRef = document.getElementById('paymentRef').value;
+            const out = document.getElementById('bookingOutput');
+            out.style.display = 'block';
+
+            if (!holdId) {
+                out.innerHTML = '<span style="color:var(--primary);">⚠️ Please enter or generate a Hold ID first.</span>';
+                return;
+            }
+
+            try {
+                const res = await fetch('/bookings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        hold_id: holdId,
+                        user_id: userId,
+                        payment_reference: paymentRef
+                    })
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    out.innerHTML = `
+                        <div style="color:#4ade80; font-weight:600; margin-bottom:6px;">🎉 Booking Confirmed from Hold!</div>
+                        <div><strong>Booking ID:</strong> <span class="highlight-id">${data.booking_id}</span></div>
+                        <div><strong>Seats Booked:</strong> ${data.seats.join(', ')}</div>
+                        <div><strong>Amount Paid:</strong> ₹${data.total_amount}</div>
+                        <div><strong>Payment Ref:</strong> ${data.payment_reference}</div>
+                    `;
+                    document.getElementById('cancelBookingId').value = data.booking_id;
+                    document.getElementById('feedbackBookingId').value = data.booking_id;
+                    loadSeatMap();
+                } else {
+                    out.innerHTML = `<span style="color:var(--primary);">❌ Error (${res.status}): ${data.detail}</span>`;
+                }
+            } catch (err) {
+                out.innerHTML = `<span style="color:var(--primary);">Error: ${err}</span>`;
+            }
+        }
+
+        async function cancelBooking() {
+            const bookingId = document.getElementById('cancelBookingId').value;
+            const reason = document.getElementById('cancelReason').value;
+            const out = document.getElementById('cancelOutput');
+            out.style.display = 'block';
+
+            if (!bookingId) {
+                out.innerHTML = '<span style="color:var(--primary);">⚠️ Please enter a Booking ID to cancel.</span>';
+                return;
+            }
+
+            try {
+                const res = await fetch(`/bookings/${bookingId}/cancel`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ reason: reason })
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    out.innerHTML = `
+                        <div style="color:#fbbf24; font-weight:600; margin-bottom:6px;">🚫 Booking Cancelled</div>
+                        <div><strong>Booking ID:</strong> <span class="highlight-id">${data.booking_id}</span></div>
+                        <div><strong>Refund Percentage:</strong> ${data.refund_percentage}%</div>
+                        <div><strong>Refund Amount:</strong> ₹${data.refund_amount}</div>
+                        <div><strong>Time to Departure:</strong> ${data.time_to_departure_hours} hours</div>
+                        <div style="margin-top:4px; font-size:0.8rem; color:var(--text-muted);">${data.message}</div>
+                    `;
+                    loadSeatMap();
+                } else {
+                    out.innerHTML = `<span style="color:var(--primary);">❌ Error (${res.status}): ${data.detail}</span>`;
+                }
+            } catch (err) {
+                out.innerHTML = `<span style="color:var(--primary);">Error: ${err}</span>`;
+            }
+        }
+
+        async function submitFeedback() {
+            const bookingId = document.getElementById('feedbackBookingId').value;
+            const text = document.getElementById('feedbackText').value;
+            const out = document.getElementById('feedbackOutput');
+            out.style.display = 'block';
+            out.innerHTML = '<span style="color:var(--accent);">Classifying Feedback Priority...</span>';
+
+            if (!bookingId) {
+                out.innerHTML = '<span style="color:var(--primary);">⚠️ Please enter a Booking ID for feedback.</span>';
+                return;
+            }
+
+            try {
+                const res = await fetch(`/bookings/${bookingId}/feedback`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ feedback_text: text })
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    const pClass = 'p-' + data.priority_level.toLowerCase();
+                    const tagsHtml = data.category_tags.map(t => `<span class="tag-pill">${t}</span>`).join('');
+
+                    out.innerHTML = `
+                        <div style="margin-bottom:8px;">
+                            <span class="priority-badge ${pClass}">Priority Level: ${data.priority_level} (Score: ${data.priority_score}/4)</span>
+                            ${data.urgent_followup ? '<span style="background:#ef4444; color:#fff; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:700; margin-left:6px;">⚠️ URGENT FOLLOW-UP</span>' : ''}
+                        </div>
+                        <div><strong>Feedback ID:</strong> <span class="highlight-id">${data.feedback_id}</span></div>
+                        <div><strong>Sentiment:</strong> ${data.sentiment}</div>
+                        <div><strong>Summary:</strong> ${data.summary}</div>
+                        <div><strong>Category Tags:</strong> ${tagsHtml}</div>
+                    `;
+                } else {
+                    out.innerHTML = `<span style="color:var(--primary);">❌ Error (${res.status}): ${data.detail}</span>`;
+                }
+            } catch (err) {
+                out.innerHTML = `<span style="color:var(--primary);">Error: ${err}</span>`;
+            }
+        }
+
+        async function listUrgentFeedback() {
+            const out = document.getElementById('feedbackOutput');
+            out.style.display = 'block';
+            out.innerHTML = '<span style="color:var(--accent);">Loading Support Queue...</span>';
+
+            try {
+                const res = await fetch('/feedback/urgent');
+                const data = await res.json();
+
+                if (data.length === 0) {
+                    out.innerHTML = '<span style="color:#4ade80;">✅ Priority queue empty.</span>';
+                } else {
+                    let html = `<div style="color:#ef4444; font-weight:600; margin-bottom:8px;">🚨 Support Queue (${data.length} Flagged):</div>`;
+                    data.forEach(item => {
+                        const pClass = 'p-' + item.priority_level.toLowerCase();
+                        const tags = item.category_tags.map(t => `<span class="tag-pill">${t}</span>`).join('');
+                        html += `
+                            <div style="border-bottom:1px solid var(--card-border); padding-bottom:8px; margin-bottom:8px;">
+                                <div style="margin-bottom:4px;">
+                                    <span class="priority-badge ${pClass}">${item.priority_level} (Score ${item.priority_score})</span>
+                                    <span class="highlight-id">${item.feedback_id}</span>
+                                </div>
+                                <div><strong>Passenger:</strong> ${item.passenger_name} (${item.passenger_email} | ${item.passenger_phone})</div>
+                                <div style="color:#f87171; font-weight:600;">"${item.summary}"</div>
+                                <div>Tags: ${tags}</div>
+                            </div>
+                        `;
+                    });
+                    out.innerHTML = html;
+                }
+            } catch (err) {
+                out.innerHTML = `<span style="color:var(--primary);">Error: ${err}</span>`;
+            }
+        }
+
+        window.onload = () => {
+            initDatePicker();
+            loadTripsAndSeats();
+        };
+    </script>
+</body>
+</html>

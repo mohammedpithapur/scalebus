@@ -1,5 +1,8 @@
 import os
-from fastapi import FastAPI, HTTPException, Path
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Path, Query
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from database import init_db, get_db
 from seed import seed_database
@@ -19,12 +22,12 @@ from services import (
     create_seat_hold,
     confirm_booking,
     cancel_booking,
-    process_feedback
+    process_feedback,
+    get_urgent_feedbacks
 )
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize DB and seed data on startup
     seed_database()
     yield
 
@@ -35,28 +38,30 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-@app.get("/", tags=["Health"])
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+@app.get("/", tags=["Dashboard"])
 def root():
+    index_path = os.path.join(static_dir, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
     return {
         "status": "online",
         "service": "Bus Seat Booking & Cancellation Engine",
-        "documentation": "/docs",
-        "endpoints": [
-            "GET /trips",
-            "GET /trips/{id}/seats",
-            "POST /seats/hold",
-            "POST /bookings",
-            "POST /bookings/{id}/cancel",
-            "POST /bookings/{id}/feedback"
-        ]
+        "documentation": "/docs"
     }
 
 @app.get("/trips", tags=["Trips"])
-def list_trips():
-    """List all available trips in the system."""
+def list_trips(date: Optional[str] = Query(None, description="Filter trips by travel date YYYY-MM-DD")):
+    """List available trips in the system, optionally filtered by travel date (YYYY-MM-DD)."""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM trips ORDER BY departure_time ASC")
+        if date:
+            cursor.execute("SELECT * FROM trips WHERE departure_time LIKE ? ORDER BY departure_time ASC", (f"{date}%",))
+        else:
+            cursor.execute("SELECT * FROM trips ORDER BY departure_time ASC")
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
@@ -68,10 +73,6 @@ def list_trips():
     summary="Get seat map for a trip"
 )
 def get_seats(id: str = Path(..., description="Trip ID (e.g. TRIP-101)")):
-    """
-    Returns the real-time seat map for a trip.
-    Auto-expires any seat holds past their grace period before returning status.
-    """
     return get_trip_seat_map(id)
 
 # API 2: POST /seats/hold
@@ -82,11 +83,6 @@ def get_seats(id: str = Path(..., description="Trip ID (e.g. TRIP-101)")):
     summary="Place a temporary hold on seats"
 )
 def place_hold(request: HoldSeatsRequest):
-    """
-    Places a temporary hold (grace period: 5 minutes) on selected seats.
-    Uses atomic transactions to prevent concurrent double-holding of the same seat.
-    Blocks passengers flagged with high cancellation risk (3+ late cancellations).
-    """
     return create_seat_hold(
         trip_id=request.trip_id,
         seat_numbers=request.seat_numbers,
@@ -98,18 +94,15 @@ def place_hold(request: HoldSeatsRequest):
     "/bookings",
     response_model=ConfirmBookingResponse,
     tags=["Bookings"],
-    summary="Confirm booking from an active hold"
+    summary="Confirm booking from an active hold OR direct book"
 )
 def create_booking(request: ConfirmBookingRequest):
-    """
-    Confirms a booking from a valid, active hold upon payment.
-    Converts 'held' seats into 'booked' seats.
-    Re-submitting with the same hold_id is idempotent and returns the existing booking.
-    """
     return confirm_booking(
         hold_id=request.hold_id,
         user_id=request.user_id,
-        payment_reference=request.payment_reference
+        payment_reference=request.payment_reference,
+        trip_id=request.trip_id,
+        seat_numbers=request.seat_numbers
     )
 
 # API 4: POST /bookings/{id}/cancel
@@ -123,15 +116,6 @@ def cancel(
     id: str = Path(..., description="Booking ID (e.g. BOOK-12345678)"),
     request: CancelBookingRequest = CancelBookingRequest()
 ):
-    """
-    Cancels a booking, releases seats back to 'available', and calculates refund:
-    - > 24 hours before departure: 100% refund
-    - 6h - 24h before departure: 50% refund
-    - < 6 hours before departure: 0% refund
-    
-    Idempotent: Multiple cancellation calls on the same booking return the exact same refund.
-    Cancelling < 6 hours before departure increments late cancellation counter; 3+ late cancellations restrict user.
-    """
     return cancel_booking(booking_id=id, reason=request.reason)
 
 # API 5: POST /bookings/{id}/feedback
@@ -145,17 +129,16 @@ def submit_feedback(
     request: SubmitFeedbackRequest,
     id: str = Path(..., description="Booking ID")
 ):
-    """
-    Submits post-trip passenger feedback.
-    Strips PII (email, phone, credit card) before sending text to LLM.
-    LLM analyzes sentiment, generates summary, extracts category tags,
-    and sets 'urgent_followup' flag if feedback requires immediate customer service action.
-    """
     return process_feedback(booking_id=id, raw_feedback_text=request.feedback_text)
+
+@app.get("/feedback/urgent", tags=["Feedback & AI"], summary="List feedback categorized by priority levels")
+def list_urgent_feedback(
+    level: Optional[str] = Query(None, description="Filter by priority level: CRITICAL, HIGH, MEDIUM, LOW")
+):
+    return get_urgent_feedbacks(min_priority_level=level)
 
 @app.get("/users/{user_id}", tags=["Users"])
 def get_user_profile(user_id: str):
-    """View passenger profile, late cancellation count, and restriction status."""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))

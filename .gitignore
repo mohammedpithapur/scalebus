@@ -1,2 +1,22 @@
-/DECISIONS.md
-/README.md
+# Secrets & Local Environment Variables
+.env
+.env.local
+
+# Database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/bus_booking.db
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+venv/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
