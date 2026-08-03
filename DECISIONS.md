@@ -1,69 +1,72 @@
-# Architecture & Engineering Decisions (DECISIONS.md)
+# Engineering Design Decisions
 
-## 1. Technology Stack Choice
-- **Framework**: Python 3.14 + FastAPI + Pydantic v2.
-  - **Reasoning**: FastAPI provides asynchronous request handling, automatic schema validation with Pydantic, and instant interactive OpenAPI documentation (`/docs`). This makes testing all 5 required endpoints seamless.
-- **Database**: SQLite with Write-Ahead Logging (WAL) mode (`PRAGMA journal_mode=WAL;`) and foreign keys enabled.
-  - **Reasoning**: SQLite in WAL mode allows concurrent readers and writers without lock contention. For a hackathon context, it offers zero setup overhead, zero external dependencies, and easy reproducibility while supporting full ACID transactions.
-- **AI Integration**: Multi-provider LLM Client supporting Google Gemini (`GEMINI_API_KEY`), Groq (`GROQ_API_KEY`), and OpenRouter (`OPENROUTER_API_KEY`), with a local rule-based fallback for environments without an active API key.
+I built this bus seat booking and cancellation engine to tackle two main challenges: strict, conflict-free seat allocation under high concurrency, and automated passenger feedback triage using LLMs without exposing sensitive user data.
+
+Here is a breakdown of the architectural choices, trade-offs, and design boundaries made during development.
 
 ---
 
-## 2. Solution Structure & Boundary (Code vs. LLM)
+## 1. Stack Selection & Rationale
 
-### What is Kept in Code (Deterministic Engine):
-- **Seat Map & Inventory Management**: Tracking real-time statuses (`available`, `held`, `booked`).
-- **Concurrency & Race Condition Prevention**: SQLite `BEGIN IMMEDIATE` transactions to atomically lock seat inventory during hold creation and booking confirmation, guaranteeing that two passengers can never claim the same seat.
-- **Grace Period Enforcement**: Lazy evaluation on read/hold + background status cleanup.
-- **Time-Window Refund Math**: Precise calculation based on hours remaining until trip departure (`>24h` = 100%, `6-24h` = 50%, `<6h` = 0%).
-- **Idempotency**: Storing refund amounts and transaction states so repeat requests return identical results without double-crediting.
-- **PII Scrubbing**: Local Regex sanitization removing email addresses, phone numbers, and payment details before any text is dispatched to external AI models.
+- **Framework**: Python 3.14 + FastAPI + Pydantic v2
+  FastAPI was chosen for its async I/O performance, automatic Pydantic request/response validation, and zero-configuration OpenAPI (`/docs`) generation. This made testing and verifying all required endpoints straightforward.
 
-### What is Delegated to the LLM (Probabilistic AI):
-- **Post-Trip Feedback Analysis**:
-  1. **Sentiment Classification**: `POSITIVE`, `NEUTRAL`, `NEGATIVE`, `STRONGLY_NEGATIVE`.
-  2. **Categorization Tags**: E.g., `AC`, `DRIVER_BEHAVIOR`, `PUNCTUALITY`, `CLEANLINESS`, `SAFETY`.
-  3. **Urgency Flagging**: Identifying angry passengers, safety issues, or severe driver complaints that require immediate customer support escalation (`urgent_followup: true`).
-  4. **Feedback Summarization**: 1-sentence executive summary.
+- **Database**: SQLite in Write-Ahead Logging (WAL) Mode (`PRAGMA journal_mode=WAL;`)
+  SQLite WAL mode allows concurrent read queries while a write transaction is executing. It eliminates external database setup overhead while supporting full ACID transactions. For local testing and production deployment on single-instance web services (like Render), it provides persistence with zero ops management.
 
-### Why We Drew the Line Here:
-- Financial transactions, seat reservations, and refund algorithms must be 100% deterministic, audit-friendly, and repeatable. Letting an LLM decide refund math or seat availability introduces unpredictability and security vulnerabilities (e.g., prompt injection). 
-- Conversely, understanding natural language passenger feedback and assessing emotional urgency is where LLMs excel beyond rigid keyword patterns.
+- **AI Feedback Model**: Groq API (`llama-3.3-70b-versatile`) with multi-provider fallback
+  Groq's Llama 3.3 70B model delivers sub-500ms inference times for structured JSON extraction. The service layer is decoupled so it can fall back to Gemini or OpenRouter if needed.
 
 ---
 
-## 3. Grace Period & Refund Windows
+## 2. Drawing the Boundary: Code vs. LLM
 
-### Seat Hold Grace Period: 5 Minutes (300 Seconds)
-- **Reasoning**: 5 minutes gives passengers adequate time to review passenger details and complete payment gateway authentication. A longer period (e.g., 15 minutes) risks inventory hoarding during high-demand peak hours, while a shorter period (e.g., 2 minutes) leads to high payment drop-off rates.
+A key design rule followed in this project: **Never let an AI model manage financial calculations, inventory state, or business rules.**
 
-### Refund Time Windows:
-- **> 24 Hours before departure**: **100% Full Refund**
-  - *Reasoning*: The bus operator has sufficient lead time to re-list and resell the cancelled seat to another traveler.
-- **6 Hours to 24 Hours before departure**: **50% Half Refund**
-  - *Reasoning*: Partial compensation covering operational costs while incentivizing early cancellations so seats can still be re-allocated.
-- **< 6 Hours before departure**: **0% Zero Refund**
-  - *Reasoning*: Extremely short notice makes it highly unlikely for the operator to fill the empty seat before departure, representing direct lost revenue.
+### What Is Handled Purely in Deterministic Code:
+- **Seat Inventory & State Transitions**: Tracking seat states (`available`, `held`, `booked`).
+- **Concurrency & Double-Booking Prevention**: Using SQLite `BEGIN IMMEDIATE` transactions to acquire write locks before checking seat availability. If two users attempt to book seat `A1` at the exact same millisecond, the second transaction is blocked until the first finishes, correctly returning HTTP 409 Conflict.
+- **Hold Expiration Math**: 5-minute hold grace period evaluated lazily on read/write operations.
+- **Refund Policy Enforcement**: Exact percentage refund math based on departure hours (`>24h` = 100%, `6-24h` = 50%, `<6h` = 0%).
+- **Cancellation Idempotency**: Storing refund amounts so repeat cancellation calls return identical refund values without double-refunding.
+- **Local PII Scrubbing**: Running regex sanitization locally to strip email addresses, phone numbers, and payment cards *before* any text reaches the LLM.
 
-### Late Cancellation Risk Policy:
-- Passengers who accumulate **3 or more cancellations within the 0% refund window (<6h)** are automatically flagged with `is_restricted = 1`.
-- **Policy Enforcement**: Restricted passengers are blocked (`403 Forbidden`) from placing new seat holds or bookings, protecting bus operators against speculative booking abuse.
+### What Is Delegated to the LLM:
+- **Passenger Review Understanding**: Categorizing post-trip feedback into sentiment (`POSITIVE`, `NEUTRAL`, `NEGATIVE`, `STRONGLY_NEGATIVE`), tag categories (`AC`, `DRIVER_BEHAVIOR`, `PUNCTUALITY`, `SAFETY`), 1-sentence summaries, and 4 priority levels (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`).
 
----
-
-## 4. Trade-Offs & What Was Deliberately Skipped
-
-- **SQLite vs. PostgreSQL**: SQLite WAL was chosen for zero-dependency portability. In a high-throughput multi-node production setup, PostgreSQL with `SELECT ... FOR UPDATE` row locks or Redis distributed locks (`Redlock`) would be preferred.
-- **In-Memory Cache vs. Direct DB Queries**: Seat maps are fetched directly from SQLite. A production architecture would use Redis cache for high-read seat map endpoints.
-- **Payment Gateway Integration**: Payment reference is accepted as an incoming token rather than triggering a live Stripe/Razorpay SDK flow.
+### Why This Separation Matters:
+LLMs are probabilistic. Asking an LLM "How much refund should this customer get?" introduces risks like prompt injection or unpredictable output. Code handles money and seats; LLMs handle natural language comprehension.
 
 ---
 
-## 5. Production Readiness Roadmap
+## 3. Hold Grace Period & Refund Policies
 
-Before deploying this engine to a high-scale production environment (e.g., RedBus scale), we would add:
-1. **Distributed Locking & Caching**: Redis for atomic seat hold keys with auto-TTL, offloading read traffic from the primary database.
-2. **Asynchronous Background Sweep**: Celery / Redis Queue (RQ) for sweeping expired holds and dispatching urgent feedback notifications via Slack/PagerDuty.
-3. **Database Migrations**: Alembic for managing database schema versioning.
-4. **Rate Limiting & Authentication**: JWT authentication middleware and API rate limiting per IP/user.
-5. **Observability**: Prometheus metrics (track hold expiration rates, cancellation percentages, AI latency) and OpenTelemetry tracing.
+- **5-Minute Seat Hold Grace Period**:
+  Five minutes gives a passenger sufficient time to select seats and enter payment details without hoarding inventory on busy routes. If payment isn't confirmed within 300 seconds, the hold expires automatically.
+
+- **Time-Window Refund Policy**:
+  - `> 24 hours to departure`: **100% Refund**. High likelihood of reselling the seat.
+  - `6 to 24 hours to departure`: **50% Refund**. Partial cost coverage for short-notice cancellation.
+  - `< 6 hours to departure`: **0% Refund**. High risk of empty seat on departure.
+
+- **Abuse Restriction Policy**:
+  Passengers who accumulate 3 or more cancellations in the zero-refund window (<6h) are flagged with `is_restricted = 1`, blocking future holds/bookings (`HTTP 403 Forbidden`).
+
+---
+
+## 4. Engineering Trade-Offs
+
+1. **SQLite WAL vs PostgreSQL**:
+   SQLite WAL was selected to make the project instantly runnable everywhere without setting up Postgres containers. In a multi-region distributed cluster, PostgreSQL with row-level locks (`SELECT ... FOR UPDATE`) or Redis distributed locking (`Redlock`) would be used instead.
+2. **Synchronous DB Access vs Async Connection Pool**:
+   Given SQLite's file-level locking nature, synchronous connection contexts per request avoided thread starvation while keeping transaction boundaries simple and safe.
+
+---
+
+## 5. What I Would Add for Production at RedBus Scale
+
+If taking this service to production for millions of daily bookings:
+1. **Redis Caching & Distributed Locks**: Offloading seat map reads to Redis and using Redis keys with TTL for 5-minute seat holds.
+2. **Background Task Queue**: Using Celery/RQ for processing background hold expirations and sending PagerDuty alerts for `CRITICAL` passenger feedback.
+3. **Database Migrations**: Alembic for tracking DB schema versioning.
+4. **JWT Authentication & Rate Limiting**: Securing user endpoints with OAuth2/JWT tokens and rate-limiting IP addresses.
