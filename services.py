@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from database import get_db, utc_now_iso
 from fastapi import HTTPException
 
-HOLD_GRACE_PERIOD_SECONDS = int(os.getenv("HOLD_GRACE_PERIOD_SECONDS", 300))
+HOLD_GRACE_PERIOD_SECONDS = int(os.getenv("HOLD_GRACE_PERIOD_SECONDS", 900))
 
 def expire_outdated_holds(conn):
     now = utc_now_iso()
@@ -299,6 +299,23 @@ def confirm_booking(
                 "created_at": now_iso
             }
 
+def calculate_refund_percentage(hours_to_departure: float) -> int:
+    """
+    Stricter 4-tier refund policy:
+    - > 48 hours: 100% Full Refund
+    - 24h to 48h: 75% Refund
+    - 6h to 24h:  40% Refund
+    - < 6 hours:  0% Zero Refund
+    """
+    if hours_to_departure > 48.0:
+        return 100
+    elif hours_to_departure >= 24.0:
+        return 75
+    elif hours_to_departure >= 6.0:
+        return 40
+    else:
+        return 0
+
 def cancel_booking(booking_id: str, reason: str = None):
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE;")
@@ -322,7 +339,7 @@ def cancel_booking(booking_id: str, reason: str = None):
             usr = cursor.fetchone()
             is_restricted = bool(usr["is_restricted"]) if usr else False
             
-            pct = 100 if hours_diff > 24 else (50 if hours_diff >= 6 else 0)
+            pct = calculate_refund_percentage(hours_diff)
             
             if booking["refund_amount"] > 0:
                 repeat_msg = f"Notice: You have already cancelled this booking. A refund of ₹{booking['refund_amount']} ({pct}% refund) will be credited to your original payment method within 3 to 5 business days."
@@ -348,13 +365,7 @@ def cancel_booking(booking_id: str, reason: str = None):
         time_diff = dep_dt - now_dt
         hours_to_departure = time_diff.total_seconds() / 3600.0
         
-        if hours_to_departure > 24.0:
-            refund_pct = 100
-        elif hours_to_departure >= 6.0:
-            refund_pct = 50
-        else:
-            refund_pct = 0
-            
+        refund_pct = calculate_refund_percentage(hours_to_departure)
         refund_amount = round((booking["total_amount"] * refund_pct) / 100.0, 2)
         
         cursor.execute("""
@@ -587,7 +598,6 @@ def process_feedback(booking_id: str, raw_feedback_text: str):
         }
 
 def get_urgent_feedbacks(min_priority_level: str = None):
-    """Retrieves feedback entries enriched with passenger profile contact details from the database."""
     with get_db() as conn:
         cursor = conn.cursor()
         

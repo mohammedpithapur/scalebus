@@ -31,7 +31,7 @@ def seed_database(reset_for_tests: bool = False):
                     "bus_number": "KA-01-F-1234",
                     "source": "Bangalore",
                     "destination": "Goa",
-                    "departure_time": (now_dt + timedelta(hours=30)).isoformat(),  # >24h (100% refund)
+                    "departure_time": (now_dt + timedelta(hours=30)).isoformat(),  # 24h-48h (75% refund)
                     "price_per_seat": 1200.0
                 },
                 {
@@ -39,7 +39,7 @@ def seed_database(reset_for_tests: bool = False):
                     "bus_number": "MH-12-Q-5678",
                     "source": "Mumbai",
                     "destination": "Pune",
-                    "departure_time": (now_dt + timedelta(hours=12)).isoformat(),  # 6-24h (50% refund)
+                    "departure_time": (now_dt + timedelta(hours=12)).isoformat(),  # 6h-24h (40% refund)
                     "price_per_seat": 500.0
                 },
                 {
@@ -55,7 +55,7 @@ def seed_database(reset_for_tests: bool = False):
                     "bus_number": "TS-09-UB-4321",
                     "source": "Hyderabad",
                     "destination": "Chennai",
-                    "departure_time": (now_dt + timedelta(hours=48)).isoformat(),  # >24h
+                    "departure_time": (now_dt + timedelta(hours=72)).isoformat(),  # >48h (100% refund)
                     "price_per_seat": 1500.0
                 }
             ]

@@ -88,31 +88,38 @@ def test_4_direct_booking_without_prior_hold():
     assert b_data["total_amount"] == 2400.0
 
 def test_5_cancellation_refund_windows_and_idempotency():
-    """Verify 100%, 50%, and 0% refund windows and idempotency on double cancellation."""
+    """Verify 100%, 75%, 40%, and 0% refund tiers and idempotency on double cancellation."""
+    # TRIP-104 departs in 48h (>48h window -> 100% refund)
+    h4 = client.post("/seats/hold", json={"trip_id": "TRIP-104", "seat_numbers": ["C4"], "user_id": "USER-101"}).json()
+    b4 = client.post("/bookings", json={"hold_id": h4["hold_id"], "user_id": "USER-101", "payment_reference": "PAY-4"}).json()
+    c4_res = client.post(f"/bookings/{b4['booking_id']}/cancel")
+    assert c4_res.status_code == 200
+    assert c4_res.json()["refund_percentage"] == 100
+
+    # TRIP-101 departs in ~30h (24h to 48h window -> 75% refund)
     h1 = client.post("/seats/hold", json={"trip_id": "TRIP-101", "seat_numbers": ["C1"], "user_id": "USER-101"}).json()
     b1 = client.post("/bookings", json={"hold_id": h1["hold_id"], "user_id": "USER-101", "payment_reference": "PAY-1"}).json()
-    
     c1_res = client.post(f"/bookings/{b1['booking_id']}/cancel")
     assert c1_res.status_code == 200
-    c1_data = c1_res.json()
-    assert c1_data["refund_percentage"] == 100
-    assert c1_data["refund_amount"] == 1200.0
+    assert c1_res.json()["refund_percentage"] == 75
+    assert c1_res.json()["refund_amount"] == 900.0
 
+    # Repeat cancellation idempotency
     c1_re = client.post(f"/bookings/{b1['booking_id']}/cancel")
     assert c1_re.status_code == 200
-    assert c1_re.json()["refund_amount"] == 1200.0
+    assert c1_re.json()["refund_amount"] == 900.0
 
+    # TRIP-102 departs in 12h (6h to 24h window -> 40% refund)
     h2 = client.post("/seats/hold", json={"trip_id": "TRIP-102", "seat_numbers": ["C2"], "user_id": "USER-101"}).json()
     b2 = client.post("/bookings", json={"hold_id": h2["hold_id"], "user_id": "USER-101", "payment_reference": "PAY-2"}).json()
-    
     c2_res = client.post(f"/bookings/{b2['booking_id']}/cancel")
     assert c2_res.status_code == 200
-    assert c2_res.json()["refund_percentage"] == 50
-    assert c2_res.json()["refund_amount"] == 250.0
+    assert c2_res.json()["refund_percentage"] == 40
+    assert c2_res.json()["refund_amount"] == 200.0
 
+    # TRIP-103 departs in 2h (<6h window -> 0% refund)
     h3 = client.post("/seats/hold", json={"trip_id": "TRIP-103", "seat_numbers": ["C3"], "user_id": "USER-101"}).json()
     b3 = client.post("/bookings", json={"hold_id": h3["hold_id"], "user_id": "USER-101", "payment_reference": "PAY-3"}).json()
-    
     c3_res = client.post(f"/bookings/{b3['booking_id']}/cancel")
     assert c3_res.status_code == 200
     assert c3_res.json()["refund_percentage"] == 0
@@ -172,7 +179,5 @@ def test_8_concurrent_race_condition_protection():
     successes = [r for r in results if r.status_code == 200]
     conflicts = [r for r in results if r.status_code == 409]
 
-    # Exactly ONE passenger gets the hold
     assert len(successes) == 1
-    # Exactly NINE passengers get conflict error
     assert len(conflicts) == 9

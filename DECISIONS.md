@@ -1,72 +1,90 @@
-# Engineering Design Decisions
+# Engineering Decisions
 
-I built this bus seat booking and cancellation engine to tackle two main challenges: strict, conflict-free seat allocation under high concurrency, and automated passenger feedback triage using LLMs without exposing sensitive user data.
+## 1. Stack Selection
 
-Here is a breakdown of the architectural choices, trade-offs, and design boundaries made during development.
+Framework: Python + FastAPI
+I chose FastAPI because I have used it before and I have a good understanding of it. It also gives great features like automatic /docs swagger UI, which made testing the endpoints very easy.
 
----
+Database: SQLite (WAL Mode)
+Because this is a hackathon project, I used a lightweight database which is SQLite so external setup time is avoided.
+Setting PRAGMA journal_mode=WAL; allows reading and writing to happen smoothly without database lock errors. It makes the app very easy to run locally or deploy to Render without needing a separate database server.
 
-## 1. Stack Selection & Rationale
+AI Model: Groq API (llama-3.3-70b-versatile)
+I used Groq because it has free models, runs fast, and is simple to set up. It gets the job done quickly for extracting JSON sentiment and priority levels from passenger feedback.
 
-- **Framework**: Python 3.14 + FastAPI + Pydantic v2
-  FastAPI was chosen for its async I/O performance, automatic Pydantic request/response validation, and zero-configuration OpenAPI (`/docs`) generation. This made testing and verifying all required endpoints straightforward.
+## 2. Code vs AI Boundary
 
-- **Database**: SQLite in Write-Ahead Logging (WAL) Mode (`PRAGMA journal_mode=WAL;`)
-  SQLite WAL mode allows concurrent read queries while a write transaction is executing. It eliminates external database setup overhead while supporting full ACID transactions. For local testing and production deployment on single-instance web services (like Render), it provides persistence with zero ops management.
+I decided to keep all real business rules in code and only use the AI for reading feedback text.
 
-- **AI Feedback Model**: Groq API (`llama-3.3-70b-versatile`) with multi-provider fallback
-  Groq's Llama 3.3 70B model delivers sub-500ms inference times for structured JSON extraction. The service layer is decoupled so it can fall back to Gemini or OpenRouter if needed.
+What I kept in Code:
+- Seat map state (available, held, booked).
+- Double-booking prevention using SQLite transactions (BEGIN IMMEDIATE).
+- 15-minute seat hold timer.
+- Refund calculations (100%, 75%, 40%, 0%).
+- Blocking repeat cancellations from giving double refunds.
+- Cleaning email IDs and phone numbers locally before sending text to AI.
 
----
+What I gave to AI:
+- Reading post-trip passenger comments.
+- Figuring out sentiment (POSITIVE, NEUTRAL, NEGATIVE, STRONGLY_NEGATIVE).
+- Rating urgency into 4 levels (CRITICAL, HIGH, MEDIUM, LOW).
+- Writing a 1-sentence summary of the complaint.
 
-## 2. Drawing the Boundary: Code vs. LLM
+I did this because money, refunds, and seat inventory must be 100% exact and consistent. AI can make mistakes, so AI should only read feedback text, not handle payments or seat locking.
 
-A key design rule followed in this project: **Never let an AI model manage financial calculations, inventory state, or business rules.**
+## 3. Hold Time and Refund Rules
 
-### What Is Handled Purely in Deterministic Code:
-- **Seat Inventory & State Transitions**: Tracking seat states (`available`, `held`, `booked`).
-- **Concurrency & Double-Booking Prevention**: Using SQLite `BEGIN IMMEDIATE` transactions to acquire write locks before checking seat availability. If two users attempt to book seat `A1` at the exact same millisecond, the second transaction is blocked until the first finishes, correctly returning HTTP 409 Conflict.
-- **Hold Expiration Math**: 5-minute hold grace period evaluated lazily on read/write operations.
-- **Refund Policy Enforcement**: Exact percentage refund math based on departure hours (`>24h` = 100%, `6-24h` = 50%, `<6h` = 0%).
-- **Cancellation Idempotency**: Storing refund amounts so repeat cancellation calls return identical refund values without double-refunding.
-- **Local PII Scrubbing**: Running regex sanitization locally to strip email addresses, phone numbers, and payment cards *before* any text reaches the LLM.
+15-Minute Seat Hold:
+15 minutes gives the passenger enough time to select seats and enter payment details without holding seats blocked for too long if they leave.
 
-### What Is Delegated to the LLM:
-- **Passenger Review Understanding**: Categorizing post-trip feedback into sentiment (`POSITIVE`, `NEUTRAL`, `NEGATIVE`, `STRONGLY_NEGATIVE`), tag categories (`AC`, `DRIVER_BEHAVIOR`, `PUNCTUALITY`, `SAFETY`), 1-sentence summaries, and 4 priority levels (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`).
+4-Tier Refund Policy:
+I used the category method for refunding instead of a formula-based refunding because it is simpler for the user to understand how much refund they will get at what time.
+- More than 48 hours before departure: 100% Full Refund.
+- 24 to 48 hours before departure: 75% Refund.
+- 6 to 24 hours before departure: 40% Refund.
+- Less than 6 hours before departure: 0% Refund.
 
-### Why This Separation Matters:
-LLMs are probabilistic. Asking an LLM "How much refund should this customer get?" introduces risks like prompt injection or unpredictable output. Code handles money and seats; LLMs handle natural language comprehension.
+Payment & Refunds:
+For payment I have assumed it is online and I have simulated it for the purpose of this project.
+For refunds, the backend takes the payment info from the database to process the refund.
 
----
+Abuse Control Policy:
+If a user cancels 3 or more times in the last-minute window (<6 hours), they get blocked (is_restricted = 1) from placing new holds or bookings.
+I only applied this penalty to <6h cancellations because before 6 hours we can still re-sell the seat to someone else, so it blocks fewer real users by accident.
 
-## 3. Hold Grace Period & Refund Policies
+## 4. Live Deployment
 
-- **5-Minute Seat Hold Grace Period**:
-  Five minutes gives a passenger sufficient time to select seats and enter payment details without hoarding inventory on busy routes. If payment isn't confirmed within 300 seconds, the hold expires automatically.
+I have deployed the app on Render. You can access the web app on https://scalebus.onrender.com/ and use it for testing.
 
-- **Time-Window Refund Policy**:
-  - `> 24 hours to departure`: **100% Refund**. High likelihood of reselling the seat.
-  - `6 to 24 hours to departure`: **50% Refund**. Partial cost coverage for short-notice cancellation.
-  - `< 6 hours to departure`: **0% Refund**. High risk of empty seat on departure.
+## 5. Local Run Instructions
 
-- **Abuse Restriction Policy**:
-  Passengers who accumulate 3 or more cancellations in the zero-refund window (<6h) are flagged with `is_restricted = 1`, blocking future holds/bookings (`HTTP 403 Forbidden`).
+If you want to run it locally, you can run these commands. I am assuming this is a Windows machine:
 
----
+Step 1: Clone the repo
+git clone https://github.com/mohammedpithapur/scalebus.git
+cd scaletechbus
 
-## 4. Engineering Trade-Offs
+Step 2: Create virtual environment
+python -m venv venv
+.\venv\Scripts\activate
 
-1. **SQLite WAL vs PostgreSQL**:
-   SQLite WAL was selected to make the project instantly runnable everywhere without setting up Postgres containers. In a multi-region distributed cluster, PostgreSQL with row-level locks (`SELECT ... FOR UPDATE`) or Redis distributed locking (`Redlock`) would be used instead.
-2. **Synchronous DB Access vs Async Connection Pool**:
-   Given SQLite's file-level locking nature, synchronous connection contexts per request avoided thread starvation while keeping transaction boundaries simple and safe.
+Step 3: Install dependencies
+pip install -r requirements.txt
 
----
+Step 4: Set up local .env file
+Set-Content -Path .env -Value "GROQ_API_KEY=your_groq_api_key_here`nHOLD_GRACE_PERIOD_SECONDS=900"
 
-## 5. What I Would Add for Production at RedBus Scale
+Step 5: Start the server
+python main.py
 
-If taking this service to production for millions of daily bookings:
-1. **Redis Caching & Distributed Locks**: Offloading seat map reads to Redis and using Redis keys with TTL for 5-minute seat holds.
-2. **Background Task Queue**: Using Celery/RQ for processing background hold expirations and sending PagerDuty alerts for `CRITICAL` passenger feedback.
-3. **Database Migrations**: Alembic for tracking DB schema versioning.
-4. **JWT Authentication & Rate Limiting**: Securing user endpoints with OAuth2/JWT tokens and rate-limiting IP addresses.
+## 6. Engineering Trade-Offs
+
+- SQLite vs Postgres: I used SQLite so anyone can clone and run the project immediately without setting up a Postgres server. In a massive production system with multiple servers, I would switch to Postgres or Redis locks.
+- Direct DB Queries vs Redis: I fetched seat maps directly from SQLite because the database is small and fast. In a real company like RedBus, seat maps would be cached in Redis for faster loading.
+
+## 7. Future Improvements for Production
+
+If I were launching this for millions of users:
+1. Add Redis for caching seat maps and holding seats with TTL timers.
+2. Add a background queue (like Celery) to send alert notifications for CRITICAL safety complaints.
+3. Add JWT login and API rate limiting to prevent spam.

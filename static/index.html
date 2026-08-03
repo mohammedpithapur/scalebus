@@ -111,7 +111,6 @@
             transition: border-color 0.2s;
         }
 
-        /* Color scheme for datepicker icon */
         input[type="date"]::-webkit-calendar-picker-indicator {
             filter: invert(1);
             cursor: pointer;
@@ -297,7 +296,7 @@
                     <option value="TRIP-101">TRIP-101: Bangalore -> Goa (Departs in 30h)</option>
                     <option value="TRIP-102">TRIP-102: Mumbai -> Pune (Departs in 12h)</option>
                     <option value="TRIP-103">TRIP-103: Delhi -> Jaipur (Departs in 2h)</option>
-                    <option value="TRIP-104">TRIP-104: Hyderabad -> Chennai (Departs in 48h)</option>
+                    <option value="TRIP-104">TRIP-104: Hyderabad -> Chennai (Departs in 72h)</option>
                 </select>
             </div>
 
@@ -324,7 +323,7 @@
             </div>
 
             <div class="btn-group">
-                <button class="btn btn-hold" onclick="placeHold()">Option 1: Hold Seats (5 Min)</button>
+                <button class="btn btn-hold" onclick="placeHold()">Option 1: Hold Seats (15 Min)</button>
                 <button class="btn btn-book" onclick="directBook()">Option 2: Direct Book Seats</button>
             </div>
 
@@ -507,7 +506,7 @@
                         <div><strong>Hold ID:</strong> <span class="highlight-id">${data.hold_id}</span></div>
                         <div><strong>Seats Held:</strong> ${data.seats.join(', ')}</div>
                         <div><strong>Total Amount:</strong> ₹${data.total_price}</div>
-                        <div style="color:var(--text-muted); font-size:0.8rem; margin-top:4px;">⏱️ Holds expires in 5 minutes (${new Date(data.expires_at).toLocaleTimeString()})</div>
+                        <div style="color:var(--text-muted); font-size:0.8rem; margin-top:4px;">⏱️ Holds expires in 15 minutes (${new Date(data.expires_at).toLocaleTimeString()})</div>
                     `;
                     document.getElementById('bookHoldId').value = data.hold_id;
                     loadSeatMap();
